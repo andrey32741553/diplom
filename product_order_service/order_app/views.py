@@ -9,6 +9,20 @@ from order_app.serializers import ProductSerializer, ProductDetailSerializer, Or
     RegistrationSerializer, OrderDetailSerializer
 
 
+class TokenViewSet(ModelViewSet):
+
+    queryset = Token.objects.all()
+    serializer_class = LogOutSerializer
+
+    @transaction.atomic
+    #TODO
+    def destroy(self, request, *args, **kwargs):
+        deleting_user = request.user
+        user_logged = Token.objects.get(user_id=deleting_user)
+        user_logged.delete()
+        return {"Token": f"{deleting_user}'s token deleted"}
+
+
 class ProductViewSet(ModelViewSet):
     """ViewSet для продуктов """
 
