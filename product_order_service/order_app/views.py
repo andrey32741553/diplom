@@ -1,26 +1,31 @@
+import json
+
 from django.contrib.auth.models import User
 from django.db import transaction
+from django.http import HttpResponse
+from rest_framework.authtoken.models import Token
 from rest_framework.exceptions import ValidationError
 from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.viewsets import ModelViewSet
 from order_app.models import Product, Order
 
 from order_app.serializers import ProductSerializer, ProductDetailSerializer, OrderSerializer, UserSerializer, \
-    RegistrationSerializer, OrderDetailSerializer
+    RegistrationSerializer, OrderDetailSerializer, LogOutSerializer
 
 
-class TokenViewSet(ModelViewSet):
+class LogOutViewSet(ModelViewSet):
+    """ ViewSet для выхода пользователя """
 
     queryset = Token.objects.all()
     serializer_class = LogOutSerializer
 
     @transaction.atomic
-    #TODO
     def destroy(self, request, *args, **kwargs):
-        deleting_user = request.user
-        user_logged = Token.objects.get(user_id=deleting_user)
-        user_logged.delete()
-        return {"Token": f"{deleting_user}'s token deleted"}
+        request.user.auth_token.delete()
+        responseData = {
+        'User': f"{request.user.username} logged out",
+    }
+        return HttpResponse(json.dumps(responseData), content_type="application/json")
 
 
 class ProductViewSet(ModelViewSet):

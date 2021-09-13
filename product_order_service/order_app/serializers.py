@@ -1,3 +1,5 @@
+from rest_framework.authtoken.models import Token
+
 from order_app.email_sender import email_sender
 import asyncio
 from django.contrib.auth.models import User
@@ -40,14 +42,11 @@ class RegistrationSerializer(serializers.ModelSerializer):
     
    
 class LogOutSerializer(serializers.ModelSerializer):
+    """ Сериализатор для выхода пользователя """
 
     class Meta:
         model = Token
-        fields = ('key', 'user_id')
-
-    # def destroy(self):
-    #     deleting_user = self.context["request"].user.id
-    #     Token.objects.delete(user_id=deleting_user)
+        fields = ('key',)
 
     
 class PriceSerializer(serializers.ModelSerializer):
