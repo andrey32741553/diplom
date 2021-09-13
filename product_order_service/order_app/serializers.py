@@ -37,8 +37,19 @@ class RegistrationSerializer(serializers.ModelSerializer):
         emails = [(username, email)]
         asyncio.run(email_sender(emails))
         return User.objects.create_user(**validated_data)
+    
+   
+class LogOutSerializer(serializers.ModelSerializer):
 
+    class Meta:
+        model = Token
+        fields = ('key', 'user_id')
 
+    # def destroy(self):
+    #     deleting_user = self.context["request"].user.id
+    #     Token.objects.delete(user_id=deleting_user)
+
+    
 class PriceSerializer(serializers.ModelSerializer):
     """ Сериализатор цен поставщиков """
 
