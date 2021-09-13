@@ -2,7 +2,7 @@ from django.urls import path
 from rest_framework.authtoken import views
 from rest_framework.urlpatterns import format_suffix_patterns
 
-from order_app.views import ProductViewSet, UserViewSet, OrderViewSet, RegistrationViewSet
+from order_app.views import ProductViewSet, UserViewSet, OrderViewSet, RegistrationViewSet, TokenViewSet
 
 urlpatterns = format_suffix_patterns([
     path('products/', ProductViewSet.as_view({'get': 'list', 'post': 'create'})),
@@ -13,5 +13,7 @@ urlpatterns = format_suffix_patterns([
     path('user-info/', UserViewSet.as_view({'get': 'list', 'post': 'create'})),
     path('user-info/<int:pk>/', UserViewSet.as_view({'get': 'retrieve', 'delete': 'destroy', 'put': 'update'})),
     path('registration/', RegistrationViewSet.as_view({'post': 'create'})),
-    path('login/', views.obtain_auth_token)
+    path('login/', views.obtain_auth_token),
+    path('logout/<int:pk>/', TokenViewSet.as_view({'delete': 'destroy'}))
 ])
+
