@@ -1,6 +1,6 @@
 from rest_framework.authtoken.models import Token
 
-from order_app.email_sender import email_sender
+from order_app.email_sender import registration_confirm, order_confirm
 import asyncio
 from django.contrib.auth.models import User
 from rest_framework import serializers
@@ -37,7 +37,7 @@ class RegistrationSerializer(serializers.ModelSerializer):
         elif password is None:
             raise ValidationError({"password": "Введите пароль!"})
         emails = [(username, email)]
-        asyncio.run(email_sender(emails))
+        asyncio.run(registration_confirm(emails))
         return User.objects.create_user(**validated_data)
     
    
@@ -145,7 +145,9 @@ class OrderSerializer(serializers.ModelSerializer):
         order.count = validated_data['count']
         order.total = validated_data['total']
         order.save()
-        Position.objects.bulk_create(positions_objs)
+        positions_list = Position.objects.bulk_create(positions_objs)
+        order_confirm_for_email = (order, positions_list)
+        asyncio.run(order_confirm(order_confirm_for_email))
         return order
 
 
