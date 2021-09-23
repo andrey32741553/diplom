@@ -2,6 +2,15 @@ from django.db import models
 from django.contrib.auth.models import User
 
 
+class OrderStatusChoices(models.TextChoices):
+    """Статусы заказа"""
+
+    NEW = "NEW", "Новый"
+    IN_PROGRESS = "IN_PROGRESS", "Выполняется"
+    DONE = "DONE", "Готов"
+    CANCELLED = "CANCELLED", "Отменён"
+
+
 class Price(models.Model):
     """ Цены на продукты от разных поставщиков """
 
@@ -10,7 +19,7 @@ class Price(models.Model):
     price = models.FloatField("Цена", default=0.00)
 
     def __str__(self):
-        return "This entry contains {}(s).".format(self.price)
+        return "Цена на {} {} в {}(ом; е).".format(self.product.name, self.price, self.provider.username)
 
     class Meta:
         verbose_name = "Наименование"
@@ -22,6 +31,8 @@ class Product(models.Model):
 
     name = models.CharField("Название", max_length=50)
     description = models.TextField("Описание", default='')
+    category = models.ForeignKey('Category', verbose_name='Категория', related_name='products', blank=True,
+                                 on_delete=models.CASCADE)
     providers_info = models.ManyToManyField(User, related_name='products', through="Price")
 
     def __str__(self):
@@ -30,6 +41,20 @@ class Product(models.Model):
     class Meta:
         verbose_name = "Товар"
         verbose_name_plural = "Товары"
+
+
+class Category(models.Model):
+    """ Модель категорий """
+
+    name = models.CharField(max_length=40, verbose_name='Название')
+
+    class Meta:
+        verbose_name = 'Категория'
+        verbose_name_plural = "Список категорий"
+        ordering = ('-name',)
+
+    def __str__(self):
+        return self.name
 
 
 class Order(models.Model):
@@ -41,12 +66,16 @@ class Order(models.Model):
         on_delete=models.CASCADE,
         related_name="order"
     )
+    status = models.TextField(
+        OrderStatusChoices.choices,
+        default=OrderStatusChoices.NEW
+    )
     products_list = models.ManyToManyField(Product, related_name='order', through='Position')
     count = models.PositiveIntegerField(editable=False)
     total = models.FloatField(editable=False)
 
     def __str__(self):
-        return "User: {} has {} items in order. Their total is ${}".format(self.user, self.count, self.total)
+        return "User: У пользователя {} {} единиц товара в заказе на сумму {}".format(self.user, self.count, self.total)
 
     class Meta:
         verbose_name = "Заказ"
@@ -62,7 +91,7 @@ class Position(models.Model):
     quantity = models.PositiveIntegerField()
 
     def __str__(self):
-        return "This entry contains {} {}(s).".format(self.quantity, self.product.name)
+        return "Позиция содержит {} {}(шт).".format(self.quantity, self.product.name)
 
     class Meta:
         verbose_name = "Наименование"
