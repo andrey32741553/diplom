@@ -1,11 +1,9 @@
-from rest_framework.authtoken.models import Token
+from order_app.email_sender import send_message_reg_confirm, order_confirm, message_to_provider
 
-from order_app.email_sender import registration_confirm, order_confirm
-import asyncio
 from django.contrib.auth.models import User
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
-from order_app.models import Product, Order, Position, Price
+from order_app.models import Product, Order, Position, Price, Category
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -13,7 +11,7 @@ class UserSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = User
-        fields = ('id', 'username', 'email', 'is_staff')
+        fields = ('id', 'username', 'email', 'is_staff', 'is_active')
 
 
 class RegistrationSerializer(serializers.ModelSerializer):
@@ -27,6 +25,7 @@ class RegistrationSerializer(serializers.ModelSerializer):
         }
 
     def create(self, validated_data):
+        """ Метод регистрирующий пользователя и отправляющий сообщение о регистрации """
         username = validated_data['username']
         email = validated_data['email']
         password = validated_data['password']
@@ -36,21 +35,15 @@ class RegistrationSerializer(serializers.ModelSerializer):
             raise ValidationError({"email": "Введите адрес электронной почты!"})
         elif password is None:
             raise ValidationError({"password": "Введите пароль!"})
-        emails = [(username, email)]
-        asyncio.run(registration_confirm(emails))
+        emails = (username, email)
+        send_message_reg_confirm(emails)
         return User.objects.create_user(**validated_data)
-    
-   
-class LogOutSerializer(serializers.ModelSerializer):
-    """ Сериализатор для выхода пользователя """
 
-    class Meta:
-        model = Token
-        fields = ('key',)
 
-    
 class PriceSerializer(serializers.ModelSerializer):
     """ Сериализатор цен поставщиков """
+
+    provider = UserSerializer(read_only=True)
 
     class Meta:
         model = Price
@@ -62,29 +55,26 @@ class PositionSerializer(serializers.ModelSerializer):
 
     class Meta:
         model = Position
-        fields = ("provider", "product", "quantity")
+        fields = '__all__'
+        read_only_fields = ('order',)
+
+
+class CategorySerializer(serializers.ModelSerializer):
+    class Meta:
+        model = Category
+        fields = ('id', 'name',)
+        read_only_fields = ('id',)
 
 
 class ProductSerializer(serializers.ModelSerializer):
     """Serializer для списка продуктов."""
 
     providers_info = PriceSerializer(many=True, source='price.all')
+    category = serializers.StringRelatedField()
 
     class Meta:
         model = Product
         fields = '__all__'
-
-    def create(self, validated_data):
-        providers_list = []
-        prices = validated_data.pop(
-            'price')
-        product_info = super().create(validated_data)
-        for price in prices.values():
-            for item in price:
-                providers_list.append(Price(product=product_info, provider=item['provider'], price=item['price']))
-        product_info.save()
-        Price.objects.bulk_create(providers_list)
-        return product_info
 
 
 class ProductDetailSerializer(serializers.ModelSerializer):
@@ -128,6 +118,7 @@ class OrderSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
     def create(self, validated_data):
+        """ Метод создания заказов с отправкой сообщения покупателю с подтверждением и поставщикам о новом заказе """
         validated_data['user'] = self.context["request"].user
         positions = validated_data.pop(
             'position')
@@ -137,6 +128,9 @@ class OrderSerializer(serializers.ModelSerializer):
         order = super().create(validated_data)
         for position in positions.values():
             for item in position:
+                provider = User.objects.get(username=item['provider'])
+                if not provider.is_active:
+                    raise ValidationError({"Provider": f"Поставщик {str(provider).capitalize()} не принимает заказы."})
                 price = Price.objects.get(product=item['product'].id, provider=item['provider']).price
                 validated_data['total'] += price * item['quantity']
                 validated_data['count'] += item['quantity']
@@ -147,7 +141,8 @@ class OrderSerializer(serializers.ModelSerializer):
         order.save()
         positions_list = Position.objects.bulk_create(positions_objs)
         order_confirm_for_email = (order, positions_list)
-        asyncio.run(order_confirm(order_confirm_for_email))
+        order_confirm(order_confirm_for_email)
+        message_to_provider(order_confirm_for_email)
         return order
 
 
@@ -166,20 +161,33 @@ class OrderDetailSerializer(serializers.ModelSerializer):
         fields = '__all__'
 
     def update(self, instance, validated_data):
-        my_view = self.context['view']
-        order_id = my_view.kwargs.get('pk')
-        positions = validated_data.pop(
-            'position')
-        positions_objs = []
-        for position in positions.values():
-            for item in position:
-                price = Price.objects.get(product=item['product'].id, provider=item['provider']).price
-                validated_data['total'] += price * item['quantity']
-                validated_data['count'] += item['quantity']
-                positions_objs.append(Position(quantity=item['quantity'],
-                                               product=item['product'], order=order_id, provider=item['provider']))
-        instance.count = validated_data.get('count', instance.count)
-        instance.total = validated_data.get('total', instance.total)
-        instance.save()
-        Position.objects.bulk_update(positions_objs)
-        return instance
+        """ Метод позволяющий внести изменения в заказ """
+        user = self.context['request'].user
+        if not user.is_staff and user.is_authenticated:
+            my_view = self.context['view']
+            order_id = my_view.kwargs.get('pk')
+            positions = validated_data.pop(
+                'position')
+            positions_objs = []
+            for position in positions.values():
+                for item in position:
+                    price = Price.objects.get(product=item['product'].id, provider=item['provider']).price
+                    validated_data['total'] += price * item['quantity']
+                    validated_data['count'] += item['quantity']
+                    positions_objs.append(Position(quantity=item['quantity'],
+                                                   product=item['product'], order=order_id, provider=item['provider']))
+            if validated_data['status'] == 'CANCELLED':
+                instance.status = validated_data.get('status', instance.status)
+                instance.count = validated_data.get('count', instance.count)
+                instance.total = validated_data.get('total', instance.total)
+                instance.save()
+                Position.objects.bulk_update(positions_objs)
+                return instance
+            else:
+                raise ValidationError({"Order": "Авторизованный пользователь может менять статус только на 'Отменён'"})
+        elif user.is_staff:
+            instance.status = validated_data.get('status', instance.status)
+            instance.save()
+            return instance
+        else:
+            raise ValidationError({"Order": "Менять статус заказа может только админ"})
