@@ -1,5 +1,5 @@
 from django.contrib import admin
-from django.contrib.admin import ModelAdmin, DateFieldListFilter
+from django.contrib.admin import ModelAdmin
 
 from order_app.models import Product, Price, Order, Position
 
@@ -31,13 +31,3 @@ class OrderAdmin(ModelAdmin):
     list_display = ("user",)
     readonly_fields = ("total", "count")
     inlines = [PositionInline]
-    # list_filter = (
-    #     ('created_at', DateFieldListFilter),
-    # )
-
-
-# @admin.register(ProductCollections)
-# class ProductCollectionsAdmin(ModelAdmin):
-#     """Подборки"""
-#     list_display = ('title', 'text', 'created_at', 'updated_at')
-
