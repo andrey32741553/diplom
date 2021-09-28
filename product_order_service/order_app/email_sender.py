@@ -4,8 +4,10 @@ import ssl
 from email.message import EmailMessage
 
 from order_app.models import Position
+from product_order_service import celery_app
 
 
+@celery_app.task
 def send_message_reg_confirm(emails):
     message = EmailMessage()
     message["From"] = os.getenv('MY_EMAIL')
@@ -20,6 +22,7 @@ def send_message_reg_confirm(emails):
         smtp.send_message(message)
 
 
+@celery_app.task
 def order_confirm(order_confirm_for_email):
     order_list = []
     user = order_confirm_for_email[0].user
@@ -51,6 +54,7 @@ def order_details(order_list):
     return order_details_list
 
 
+@celery_app.task
 def message_to_provider(order_confirm_for_email):
     user = order_confirm_for_email[0].user
     email_adresses = [data.provider.email for data in order_confirm_for_email[1]]
@@ -68,6 +72,7 @@ def message_to_provider(order_confirm_for_email):
         smtp.send_message(message)
 
 
+@celery_app.task
 def cancelled_status_message(order, user):
     provider_info = Position.objects.filter(order_id=order.id)
     email_adresses = [data.provider.email for data in provider_info]
@@ -83,6 +88,7 @@ def cancelled_status_message(order, user):
         smtp.send_message(message)
 
 
+@celery_app.task
 def changed_status_message(order, user):
     message = EmailMessage()
     message["From"] = os.getenv('MY_EMAIL')

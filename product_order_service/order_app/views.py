@@ -8,16 +8,22 @@ from rest_framework.permissions import IsAdminUser, IsAuthenticated
 from rest_framework.response import Response
 from rest_framework.viewsets import ModelViewSet
 
-from order_app.email_sender import cancelled_status_message, changed_status_message
-from order_app.models import Product, Order, Price, Category
-from order_app.serializers import ProductSerializer, ProductDetailSerializer, OrderSerializer, UserSerializer, \
-    RegistrationSerializer, OrderDetailSerializer, CategorySerializer
+from order_app.email_sender import changed_status_message, cancelled_status_message
+from order_app.models import Product, Price, Category, Order
+from order_app.serializers import ProductSerializer, ProductDetailSerializer, UserSerializer, RegistrationSerializer, \
+    OrderSerializer, OrderDetailSerializer, CategorySerializer
+from product_order_service import celery_app
 
 
 class ProductViewSet(ModelViewSet):
     """ViewSet для продуктов """
 
     queryset = Product.objects.filter(providers_info__is_active=True)
+
+    # def get_throttle_scope(self):
+    #     if self.action in ["create"]:
+    #         throttle_scope = 'uploads'
+    #         return throttle_scope
 
     def get_serializer_class(self):
         if self.action in ["list", "create"]:
@@ -32,30 +38,36 @@ class ProductViewSet(ModelViewSet):
         return []
 
     @transaction.atomic
+    @celery_app.task
     def create(self, request, *args, **kwargs):
         """ Метод импорта файла yaml """
+
         up_file = request.FILES['file']
         my_dict = bios.read(up_file.name, file_type='yaml')
-        provider = my_dict['shop'].encode('cp1251').decode('utf-8')
+        provider = my_dict['shop']
         provider = User.objects.get(username=provider)
 
         if request.user.is_staff and str(request.user) == provider.username:
 
             for item in my_dict['goods']:
                 description_list = []
-                product = item['name'].encode('cp1251').decode('utf-8')
+                product = item['name']
                 category = item['category']
                 price = item['price']
                 description = item['parameters']
 
                 for key, value in description.items():
-                    key = key.encode('cp1251').decode('utf-8')
+                    key = key
                     if type(value) == str:
-                        value = value.encode('cp1251').decode('utf-8')
+                        value = value
                     else:
                         value = value
                     description_dict = {key: value}
                     description_list.append(description_dict)
+
+                for data in my_dict['categories']:
+                    if data['id'] not in Category.objects.values_list('id', flat=True):
+                        Category.objects.create(id=data['id'], name=data['name'])
 
                 try:
                     product_existence = Product.objects.get(name=product)
@@ -69,10 +81,6 @@ class ProductViewSet(ModelViewSet):
                     price_info.provider_id = request.user.id
                     price_info.price = price
                     price_info.save()
-
-                    for data in my_dict['categories']:
-                        if data['id'] not in Category.objects.values_list('id', flat=True):
-                            Category.objects.create(id=data['id'], name=data['name'].encode('cp1251').decode('utf-8'))
 
                 except (Product.DoesNotExist, IntegrityError):
                     product = Product.objects.create(name=product, category_id=category, description=description_list)
@@ -141,6 +149,11 @@ class OrderViewSet(ModelViewSet):
 
     queryset = Order.objects.all()
 
+    # def get_throttle_scope(self):
+    #     if self.action in ["create", "update"]:
+    #         throttle_scope = 'orders'
+    #         return throttle_scope
+
     def get_serializer_class(self):
         if self.action in ["list", "create"]:
             return OrderSerializer
@@ -198,7 +211,7 @@ class OrderViewSet(ModelViewSet):
         if user.is_staff:
             if serializer.is_valid():
                 serializer.save()
-                changed_status_message(instance, user)
+                changed_status_message.delay(instance, user)
             return JsonResponse(data=serializer.data)
         elif not user.is_superuser and user.is_authenticated:
             if request.data['status'] != 'CANCELLED':
@@ -206,7 +219,7 @@ class OrderViewSet(ModelViewSet):
             else:
                 if serializer.is_valid():
                     serializer.save()
-                    cancelled_status_message(instance, user)
+                    cancelled_status_message.delay(instance, user)
                 return JsonResponse(data=serializer.data)
 
 

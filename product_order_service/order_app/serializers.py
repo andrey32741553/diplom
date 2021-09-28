@@ -1,9 +1,10 @@
-from order_app.email_sender import send_message_reg_confirm, order_confirm, message_to_provider
+from order_app.email_sender import order_confirm, message_to_provider, send_message_reg_confirm
 
 from django.contrib.auth.models import User
 from rest_framework import serializers
 from rest_framework.exceptions import ValidationError
-from order_app.models import Product, Order, Position, Price, Category
+
+from order_app.models import Price, Position, Category, Product, Order
 
 
 class UserSerializer(serializers.ModelSerializer):
@@ -36,7 +37,7 @@ class RegistrationSerializer(serializers.ModelSerializer):
         elif password is None:
             raise ValidationError({"password": "Введите пароль!"})
         emails = (username, email)
-        send_message_reg_confirm(emails)
+        send_message_reg_confirm.delay(emails)
         return User.objects.create_user(**validated_data)
 
 
@@ -141,8 +142,8 @@ class OrderSerializer(serializers.ModelSerializer):
         order.save()
         positions_list = Position.objects.bulk_create(positions_objs)
         order_confirm_for_email = (order, positions_list)
-        order_confirm(order_confirm_for_email)
-        message_to_provider(order_confirm_for_email)
+        order_confirm.delay(order_confirm_for_email)
+        message_to_provider.delay(order_confirm_for_email)
         return order
 
 
