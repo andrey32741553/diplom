@@ -41,7 +41,12 @@ INSTALLED_APPS = [
     'rest_framework',
     'rest_framework.authtoken',
     'djoser',
-    'order_app'
+    'order_app',
+    'django_celery_results',
+
+    'oauth2_provider',
+    'social_django',
+    'rest_framework_social_oauth2',
 ]
 
 MIDDLEWARE = [
@@ -135,8 +140,18 @@ DEFAULT_AUTO_FIELD = 'django.db.models.BigAutoField'
 
 REST_FRAMEWORK = {
     'DEFAULT_AUTHENTICATION_CLASSES': (
-        'rest_framework.authentication.TokenAuthentication',),
-    'TEST_REQUEST_DEFAULT_FORMAT': 'json'
+        'rest_framework.authentication.TokenAuthentication',
+        'oauth2_provider.contrib.rest_framework.OAuth2Authentication',
+        'rest_framework_social_oauth2.authentication.SocialAuthentication',
+    ),
+    'TEST_REQUEST_DEFAULT_FORMAT': 'json',
+    'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.ScopedRateThrottle',
+    ],
+    'DEFAULT_THROTTLE_RATES': {
+        'orders': '10/day',
+        'uploads': '0/day'
+    }
     }
 
 DJOSER = {
@@ -146,3 +161,41 @@ DJOSER = {
     'SEND_ACTIVATION_EMAIL': False,
     'SERIALIZERS': {},
 }
+
+# celery
+CELERY_BROKER_URL = 'redis://localhost:6379/0'
+CELERY_RESULT_BACKEND = 'redis://localhost:6379/0'
+CELERY_ACCEPT_CONTENT = ['application/json']
+CELERY_RESULT_SERIALIZER = 'json'
+CELERY_TASK_SERIALIZER = 'json'
+
+
+SOCIAL_AUTH_VK_OAUTH2_KEY = os.getenv('VK_APP_ID')
+SOCIAL_AUTH_VK_OAUTH2_SECRET = os.getenv('VK_API_SECRET')
+
+SOCIAL_AUTH_MAILRU_OAUTH2_KEY = os.getenv('MAILRU_OAUTH2_KEY')
+SOCIAL_AUTH_MAILRU_OAUTH2_SECRET = os.getenv('MAILRU_OAUTH2_SECRET')
+
+SOCIAL_AUTH_POSTGRES_JSONFIELD = True
+SOCIAL_AUTH_URL_NAMESPACE = 'social'
+SOCIAL_AUTH_JSONFIELD_ENABLED = True
+
+AUTHENTICATION_BACKENDS = (
+    'social_core.backends.vk.VKOAuth2',
+    'rest_framework_social_oauth2.backends.DjangoOAuth2',
+    'django.contrib.auth.backends.ModelBackend',
+    'social_core.backends.mailru.MailruOAuth2',
+    'social_core.backends.mailru.MRGOAuth2'
+)
+
+SOCIAL_AUTH_PIPELINE = (
+    'social_core.pipeline.social_auth.social_details',
+    'social_core.pipeline.social_auth.social_uid',
+    'social_core.pipeline.social_auth.social_user',
+    'social_core.pipeline.user.get_username',
+    'social_core.pipeline.social_auth.associate_by_email',
+    'social_core.pipeline.user.create_user',
+    'social_core.pipeline.social_auth.associate_user',
+    'social_core.pipeline.social_auth.load_extra_data',
+    'social_core.pipeline.user.user_details',
+)
