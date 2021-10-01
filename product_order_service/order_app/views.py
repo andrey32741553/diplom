@@ -44,30 +44,25 @@ class ProductViewSet(ModelViewSet):
 
         up_file = request.FILES['file']
         my_dict = bios.read(up_file.name, file_type='yaml')
-        provider = my_dict['shop'].encode('cp1251').decode('utf-8')
+        provider = my_dict['shop']
         provider = User.objects.get(username=provider)
 
         if request.user.is_staff and str(request.user) == provider.username:
 
             for item in my_dict['goods']:
                 description_list = []
-                product = item['name'].encode('cp1251').decode('utf-8')
+                product = item['name']
                 category = item['category']
                 price = item['price']
                 description = item['parameters']
 
                 for key, value in description.items():
-                    key = key.encode('cp1251').decode('utf-8')
-                    if type(value) == str:
-                        value = value.encode('cp1251').decode('utf-8')
-                    else:
-                        value = value
                     description_dict = {key: value}
                     description_list.append(description_dict)
 
                 for data in my_dict['categories']:
                     if data['id'] not in Category.objects.values_list('id', flat=True):
-                        Category.objects.create(id=data['id'], name=data['name'].encode('cp1251').decode('utf-8'))
+                        Category.objects.create(id=data['id'], name=data['name'])
 
                 try:
                     product_existence = Product.objects.get(name=product)
