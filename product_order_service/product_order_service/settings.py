@@ -43,7 +43,9 @@ INSTALLED_APPS = [
     'djoser',
     'order_app',
     'django_celery_results',
-
+    'drf_spectacular',
+    'drf_spectacular_sidecar',
+    'drf_yasg',
     'oauth2_provider',
     'social_django',
     'rest_framework_social_oauth2',
@@ -146,12 +148,16 @@ REST_FRAMEWORK = {
     ),
     'TEST_REQUEST_DEFAULT_FORMAT': 'json',
     'DEFAULT_THROTTLE_CLASSES': [
+        'rest_framework.throttling.AnonRateThrottle',
         'rest_framework.throttling.ScopedRateThrottle',
     ],
     'DEFAULT_THROTTLE_RATES': {
-        'orders': '10/day',
-        'uploads': '0/day'
-    }
+        'anon': '60/minute',
+        'orders.create': '5/day',
+        'orders.update': '5/day',
+        'uploads': '20/day'
+    },
+    'DEFAULT_SCHEMA_CLASS': 'drf_spectacular.openapi.AutoSchema',
     }
 
 DJOSER = {
@@ -199,3 +205,12 @@ SOCIAL_AUTH_PIPELINE = (
     'social_core.pipeline.social_auth.load_extra_data',
     'social_core.pipeline.user.user_details',
 )
+
+SPECTACULAR_SETTINGS = {
+    'TITLE': 'Product_order_service',
+    'DESCRIPTION': 'Service_for_making_orders_in_different_shops',
+    'VERSION': '1.0.0',
+    'SWAGGER_UI_DIST': 'SIDECAR',
+    'SWAGGER_UI_FAVICON_HREF': 'SIDECAR',
+    'REDOC_DIST': 'SIDECAR',
+}
