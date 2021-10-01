@@ -10,9 +10,8 @@ from rest_framework.viewsets import ModelViewSet
 
 from order_app.email_sender import changed_status_message, cancelled_status_message
 from order_app.models import Product, Price, Category, Order
-from order_app.serializers import ProductSerializer, ProductDetailSerializer, UserSerializer, RegistrationSerializer, \
+from order_app.serializers import ProductSerializer, ProductDetailSerializer, AppUserSerializer, RegistrationSerializer, \
     OrderSerializer, OrderDetailSerializer, CategorySerializer
-from product_order_service import celery_app
 
 
 class ProductViewSet(ModelViewSet):
@@ -20,10 +19,12 @@ class ProductViewSet(ModelViewSet):
 
     queryset = Product.objects.filter(providers_info__is_active=True)
 
-    # def get_throttle_scope(self):
-    #     if self.action in ["create"]:
-    #         throttle_scope = 'uploads'
-    #         return throttle_scope
+    def get_throttles(self):
+        if self.action == 'list':
+            self.throttle_scope = 'anon'
+        elif self.action == 'create':
+            self.throttle_scope = 'uploads'
+        return super().get_throttles()
 
     def get_serializer_class(self):
         if self.action in ["list", "create"]:
@@ -38,28 +39,27 @@ class ProductViewSet(ModelViewSet):
         return []
 
     @transaction.atomic
-    @celery_app.task
     def create(self, request, *args, **kwargs):
         """ Метод импорта файла yaml """
 
         up_file = request.FILES['file']
         my_dict = bios.read(up_file.name, file_type='yaml')
-        provider = my_dict['shop']
+        provider = my_dict['shop'].encode('cp1251').decode('utf-8')
         provider = User.objects.get(username=provider)
 
         if request.user.is_staff and str(request.user) == provider.username:
 
             for item in my_dict['goods']:
                 description_list = []
-                product = item['name']
+                product = item['name'].encode('cp1251').decode('utf-8')
                 category = item['category']
                 price = item['price']
                 description = item['parameters']
 
                 for key, value in description.items():
-                    key = key
+                    key = key.encode('cp1251').decode('utf-8')
                     if type(value) == str:
-                        value = value
+                        value = value.encode('cp1251').decode('utf-8')
                     else:
                         value = value
                     description_dict = {key: value}
@@ -67,7 +67,7 @@ class ProductViewSet(ModelViewSet):
 
                 for data in my_dict['categories']:
                     if data['id'] not in Category.objects.values_list('id', flat=True):
-                        Category.objects.create(id=data['id'], name=data['name'])
+                        Category.objects.create(id=data['id'], name=data['name'].encode('cp1251').decode('utf-8'))
 
                 try:
                     product_existence = Product.objects.get(name=product)
@@ -99,7 +99,7 @@ class UserViewSet(ModelViewSet):
 
     def get_serializer_class(self):
         if self.action in ["list", "retrieve", "update"]:
-            return UserSerializer
+            return AppUserSerializer
 
     def get_permissions(self):
         """Получение прав для действий"""
@@ -125,7 +125,7 @@ class UserViewSet(ModelViewSet):
         """ Метод для смены статуса поставщика (принимает/не принимает заказы) """
         instance = self.get_object()
         user = request.user
-        serializer = UserSerializer(instance, data=request.data, partial=True)
+        serializer = AppUserSerializer(instance, data=request.data, partial=True)
         if user.is_staff:
             if serializer.is_valid():
                 serializer.save()
@@ -147,12 +147,10 @@ class RegistrationViewSet(ModelViewSet):
 class OrderViewSet(ModelViewSet):
     """ViewSet для заказов"""
 
-    queryset = Order.objects.all()
-
-    # def get_throttle_scope(self):
-    #     if self.action in ["create", "update"]:
-    #         throttle_scope = 'orders'
-    #         return throttle_scope
+    def get_throttles(self):
+        if self.action in ['create', 'update']:
+            self.throttle_scope = 'orders.' + self.action
+        return super().get_throttles()
 
     def get_serializer_class(self):
         if self.action in ["list", "create"]:
@@ -165,8 +163,8 @@ class OrderViewSet(ModelViewSet):
          только их заказы"""
         user = self.request.user
         if user.is_staff:
-            queryset = Order.objects.filter(position__provider=user.id)
-        elif user.is_authenticated:
+            queryset = Order.objects.filter(position__provider=user.id).distinct()
+        elif user.is_authenticated and not user.is_staff:
             queryset = Order.objects.filter(user=user.id)
         return queryset
 
@@ -179,14 +177,21 @@ class OrderViewSet(ModelViewSet):
     @transaction.atomic
     def retrieve(self, request, *args, **kwargs):
         """ Метод, который не позволяет просматривать чужие заказы """
-        order_user = request.user
         instance = self.get_object()
-        order_creator = instance.user
-        if order_user.is_superuser:
+        if not request.user.is_staff:
+            order_user = request.user
+            order_creator = instance.user
+            if order_user != order_creator:
+                return Response(data={"Order": "Просматривать можно только свои заказы!"})
             return super().retrieve(request, *args, **kwargs)
-        elif order_user != order_creator:
-            return Response(data={"Order": "Просматривать можно только свои заказы!"})
-        return super().retrieve(request, *args, **kwargs)
+        else:
+            provider_order = Order.objects.filter(position__provider=request.user.id).distinct().filter(id=instance.id)
+            serializer = OrderSerializer(provider_order, many=True)
+            positions_list = [item['provider'] for item in serializer.data[0]['products_list']]
+            print(positions_list)
+            if request.user.id not in positions_list:
+                return Response(data={"Order": "Просматривать можно только заказы сделанные у Вас!"})
+            return JsonResponse(data=serializer.data, safe=False)
 
     @transaction.atomic
     def destroy(self, request, *args, **kwargs):
@@ -211,7 +216,7 @@ class OrderViewSet(ModelViewSet):
         if user.is_staff:
             if serializer.is_valid():
                 serializer.save()
-                changed_status_message.delay(instance, user)
+                changed_status_message.delay(int(instance.id), int(user.id))
             return JsonResponse(data=serializer.data)
         elif not user.is_superuser and user.is_authenticated:
             if request.data['status'] != 'CANCELLED':
@@ -219,7 +224,7 @@ class OrderViewSet(ModelViewSet):
             else:
                 if serializer.is_valid():
                     serializer.save()
-                    cancelled_status_message.delay(instance, user)
+                    cancelled_status_message.delay(int(instance.id), int(user.id))
                 return JsonResponse(data=serializer.data)
 
 

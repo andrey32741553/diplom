@@ -7,7 +7,7 @@ from rest_framework.exceptions import ValidationError
 from order_app.models import Price, Position, Category, Product, Order
 
 
-class UserSerializer(serializers.ModelSerializer):
+class AppUserSerializer(serializers.ModelSerializer):
     """ Сериализатор информации о поставщике """
 
     class Meta:
@@ -44,7 +44,7 @@ class RegistrationSerializer(serializers.ModelSerializer):
 class PriceSerializer(serializers.ModelSerializer):
     """ Сериализатор цен поставщиков """
 
-    provider = UserSerializer(read_only=True)
+    provider = AppUserSerializer(read_only=True)
 
     class Meta:
         model = Price
@@ -140,10 +140,9 @@ class OrderSerializer(serializers.ModelSerializer):
         order.count = validated_data['count']
         order.total = validated_data['total']
         order.save()
-        positions_list = Position.objects.bulk_create(positions_objs)
-        order_confirm_for_email = (order, positions_list)
-        order_confirm.delay(order_confirm_for_email)
-        message_to_provider.delay(order_confirm_for_email)
+        Position.objects.bulk_create(positions_objs)
+        order_confirm.delay(int(order.id))
+        message_to_provider.delay(int(order.id))
         return order
 
 
